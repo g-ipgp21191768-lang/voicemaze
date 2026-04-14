@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maze Kepala - Dunia KaMeri</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Pustaka TensorFlow.js dan BlazeFace -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap');
+        
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #f0fdf4;
+            touch-action: none;
+            overflow: hidden;
+        }
+
+        #game-canvas {
+            background-color: #ffffff;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+            border-radius: 1rem;
+            border: 4px solid #fff;
+        }
+
+        .pulse-animation {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: .5; transform: scale(1.1); }
+        }
+
+        .char-btn.selected {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+            transform: scale(1.1);
+        }
+
+        .lvl-btn.selected {
+            background-color: #3b82f6;
+            color: white;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col items-center justify-center text-slate-800">
+
+    <script>
+        const LINK_SETERUSNYA = "https://www.google.com"; 
+    </script>
+
+    <!-- MAIN MENU -->
+    <div id="main-menu" class="w-full max-w-md p-8 bg-white rounded-3xl shadow-2xl flex flex-col gap-6 text-center z-10 mx-4">
+        <div>
+            <h1 class="text-4xl font-extrabold text-green-600 mb-2">Maze Kepala</h1>
+            <p class="text-sm text-slate-500 italic">"Gunakan pergerakan kepala anda untuk bermain"</p>
+        </div>
+
+        <div>
+            <h2 class="text-lg font-semibold mb-3 text-slate-700 text-left">1. Pilih Karakter</h2>
+            <div class="grid grid-cols-4 gap-2">
+                <button onclick="pilihKarakter(0)" id="char-0" class="char-btn text-4xl p-2 border-2 border-slate-100 rounded-2xl hover:bg-slate-50 transition-all selected">🤖</button>
+                <button onclick="pilihKarakter(1)" id="char-1" class="char-btn text-4xl p-2 border-2 border-slate-100 rounded-2xl hover:bg-slate-50 transition-all">👦</button>
+                <button onclick="pilihKarakter(2)" id="char-2" class="char-btn text-4xl p-2 border-2 border-slate-100 rounded-2xl hover:bg-slate-50 transition-all">👧</button>
+                <button onclick="pilihKarakter(3)" id="char-3" class="char-btn text-4xl p-2 border-2 border-slate-100 rounded-2xl hover:bg-slate-50 transition-all">🐱</button>
+            </div>
+        </div>
+
+        <div>
+            <h2 class="text-lg font-semibold mb-3 text-slate-700 text-left">2. Tahap Kesukaran</h2>
+            <div class="flex gap-2">
+                <button onclick="pilihTahap('mudah')" id="lvl-mudah" class="lvl-btn flex-1 py-2 rounded-xl bg-slate-100 font-bold selected transition-all">Mudah</button>
+                <button onclick="pilihTahap('sederhana')" id="lvl-sederhana" class="lvl-btn flex-1 py-2 rounded-xl bg-slate-100 font-bold transition-all">Sederhana</button>
+                <button onclick="pilihTahap('sukar')" id="lvl-sukar" class="lvl-btn flex-1 py-2 rounded-xl bg-slate-100 font-bold transition-all">Sukar</button>
+            </div>
+        </div>
+
+        <button onclick="mulaDenganFullscreen()" class="w-full bg-green-500 hover:bg-green-600 text-white font-black py-4 rounded-2xl mt-2 transition-all shadow-lg active:scale-95 text-xl flex flex-col items-center">
+            <span>MULA BERMAIN</span>
+            <span class="text-xs font-normal opacity-80">(Aktifkan Skrin Penuh & Kamera)</span>
+        </button>
+    </div>
+
+    <!-- GAME SCREEN -->
+    <div id="game-screen" class="hidden w-full h-full flex flex-col items-center justify-center gap-4 z-10 px-4 bg-slate-50">
+        
+        <div class="w-full max-w-lg flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm relative">
+            <button onclick="keluarFullscreen()" class="text-xs font-bold text-red-500 border border-red-200 px-3 py-1 rounded-full z-10">Keluar</button>
+            
+            <div class="flex items-center gap-2 z-10">
+                <div id="sensor-indicator" class="w-3 h-3 rounded-full bg-orange-500 pulse-animation"></div>
+                <span id="sensor-status" class="text-sm font-bold text-slate-600 tracking-tight">Memuatkan AI Wajah...</span>
+            </div>
+
+            <!-- Kamera PiP (Picture in Picture) -->
+            <div class="absolute -bottom-16 right-4 w-24 h-24 rounded-full border-4 border-white shadow-xl overflow-hidden bg-slate-800 z-30">
+                <video id="input_video" class="w-full h-full object-cover transform scale-x-[-1]" autoplay playsinline></video>
+            </div>
+        </div>
+
+        <div class="relative group mt-4">
+            <canvas id="game-canvas"></canvas>
+            
+            <!-- Butang Kawalan Manual (Sandaran) -->
+            <div class="absolute -bottom-24 left-1/2 transform -translate-x-1/2 flex gap-2 opacity-50 hover:opacity-100 transition-opacity z-20">
+                 <button onclick="gerakManual('kiri')" class="bg-slate-200 hover:bg-slate-300 p-3 rounded-xl shadow-md text-xl">⬅️</button>
+                 <div class="flex flex-col gap-2">
+                     <button onclick="gerakManual('atas')" class="bg-slate-200 hover:bg-slate-300 p-3 rounded-xl shadow-md text-xl">⬆️</button>
+                     <button onclick="gerakManual('bawah')" class="bg-slate-200 hover:bg-slate-300 p-3 rounded-xl shadow-md text-xl">⬇️</button>
+                 </div>
+                 <button onclick="gerakManual('kanan')" class="bg-slate-200 hover:bg-slate-300 p-3 rounded-xl shadow-md text-xl">➡️</button>
+            </div>
+        </div>
+
+        <div class="bg-white/80 backdrop-blur text-slate-600 text-xs sm:text-sm py-3 px-6 rounded-full shadow-inner border border-slate-200 mt-20 text-center">
+            Pergerakan: <span class="font-bold text-blue-600">Dongak</span> (Atas) • <span class="font-bold text-blue-600">Angguk</span> (Bawah) • <span class="font-bold text-blue-600">Teleng Kiri</span> • <span class="font-bold text-blue-600">Teleng Kanan</span>
+            <br><span class="text-[10px] text-slate-400">Pastikan muka anda lurus (ke tengah) semula untuk arahan seterusnya.</span>
+        </div>
+    </div>
+
+    <!-- VICTORY MODAL -->
+    <div id="victory-modal" class="hidden fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 backdrop-blur-md">
+        <div class="bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl transform transition-all">
+            <div class="text-7xl mb-4">✨</div>
+            <h2 class="text-2xl font-black text-slate-800 mb-4 leading-tight">Tahniah, Anda Berjaya Membuka Kunci ke Dunia KaMeri!</h2>
+            <button onclick="pergiKeLink()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-2xl transition-all shadow-lg active:scale-95 text-lg mb-4">
+                Seterusnya ➔
+            </button>
+            <button onclick="mainSemula()" class="text-sm font-semibold text-slate-400 hover:text-slate-600 uppercase tracking-widest">Main Semula</button>
+        </div>
+    </div>
+
+    <script>
+        // --- GAME STATE ---
+        const karakterEmoji = ['🤖', '👦', '👧', '🐱'];
+        let charPilihan = 0;
+        let tahapPilihan = 'mudah';
+        let gridSize = 7;
+        let canvas, ctx, cellSize;
+        let maze = [], playerPos = { x: 0, y: 0 }, goalPos = { x: 0, y: 0 };
+        
+        let isPlaying = false;
+
+        // --- FACE TRACKING STATE ---
+        let blazefaceModel = null;
+        let videoStream = null;
+        let isModelLoaded = false;
+        let moveCooldown = false;
+        let lastDirection = null;
+
+        // --- FULLSCREEN LOGIC ---
+        function mulaDenganFullscreen() {
+            let elem = document.documentElement;
+            try {
+                if (elem.requestFullscreen) {
+                    elem.requestFullscreen().catch(err => console.warn("Skrin penuh dihalang:", err));
+                } else if (elem.webkitRequestFullscreen) {
+                    elem.webkitRequestFullscreen();
+                }
+            } catch (e) {
+                console.warn("Ralat skrin penuh:", e);
+            }
+            mulaPermainan();
+        }
+
+        function keluarFullscreen() {
+            try {
+                if (document.fullscreenElement) {
+                    if (document.exitFullscreen) document.exitFullscreen();
+                    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                }
+            } catch (e) { }
+            kembaliKeMenu();
+        }
+
+        // --- UI & SELECTION ---
+        function pilihKarakter(index) {
+            charPilihan = index;
+            document.querySelectorAll('.char-btn').forEach((btn, i) => {
+                i === index ? btn.classList.add('selected') : btn.classList.remove('selected');
+            });
+        }
+
+        function pilihTahap(tahap) {
+            tahapPilihan = tahap;
+            gridSize = tahap === 'mudah' ? 7 : (tahap === 'sederhana' ? 11 : 15);
+            document.querySelectorAll('.lvl-btn').forEach(btn => {
+                btn.classList.remove('selected', 'bg-blue-500', 'text-white');
+                btn.classList.add('bg-slate-100');
+            });
+            document.getElementById(`lvl-${tahap}`).classList.add('selected', 'bg-blue-500', 'text-white');
+        }
+
+        function mulaPermainan() {
+            document.getElementById('main-menu').classList.add('hidden');
+            document.getElementById('game-screen').classList.remove('hidden');
+            document.getElementById('victory-modal').classList.add('hidden');
+            
+            setupCanvas();
+            janaMaze();
+            lukisMaze();
+            isPlaying = true;
+            mulakanPengesananWajah();
+        }
+
+        function kembaliKeMenu() {
+            isPlaying = false;
+            document.getElementById('main-menu').classList.remove('hidden');
+            document.getElementById('game-screen').classList.add('hidden');
+            
+            document.getElementById('sensor-indicator').classList.replace('bg-green-500', 'bg-orange-500');
+            document.getElementById('sensor-status').innerText = "Berehat...";
+        }
+
+        function mainSemula() { 
+            document.getElementById('victory-modal').classList.add('hidden');
+            janaMaze();
+            lukisMaze();
+            isPlaying = true; 
+        }
+        function pergiKeLink() { window.location.href = LINK_SETERUSNYA; }
+
+        // --- MAZE LOGIC ---
+        function setupCanvas() {
+            canvas = document.getElementById('game-canvas');
+            ctx = canvas.getContext('2d');
+            const size = Math.min(window.innerHeight * 0.5, window.innerWidth - 40, 400);
+            canvas.width = size;
+            canvas.height = size;
+            cellSize = canvas.width / gridSize;
+        }
+
+        function janaMaze() {
+            maze = Array.from({ length: gridSize }, (_, y) => 
+                Array.from({ length: gridSize }, (_, x) => ({ x, y, walls: [true, true, true, true], visited: false }))
+            );
+
+            let stack = [];
+            let current = maze[0][0];
+            current.visited = true;
+
+            while (true) {
+                let neighbors = [];
+                let {x, y} = current;
+                if (y > 0 && !maze[y-1][x].visited) neighbors.push({c: maze[y-1][x], d: 0});
+                if (x < gridSize-1 && !maze[y][x+1].visited) neighbors.push({c: maze[y][x+1], d: 1});
+                if (y < gridSize-1 && !maze[y+1][x].visited) neighbors.push({c: maze[y+1][x], d: 2});
+                if (x > 0 && !maze[y][x-1].visited) neighbors.push({c: maze[y][x-1], d: 3});
+
+                if (neighbors.length > 0) {
+                    let next = neighbors[Math.floor(Math.random() * neighbors.length)];
+                    next.c.visited = true;
+                    stack.push(current);
+                    current.walls[next.d] = false;
+                    next.c.walls[(next.d + 2) % 4] = false;
+                    current = next.c;
+                } else if (stack.length > 0) {
+                    current = stack.pop();
+                } else break;
+            }
+            playerPos = { x: 0, y: 0 };
+            goalPos = { x: gridSize - 1, y: gridSize - 1 };
+        }
+
+        function lukisMaze() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = "#334155";
+            ctx.lineWidth = 4;
+            ctx.lineCap = "round";
+
+            for (let y = 0; y < gridSize; y++) {
+                for (let x = 0; x < gridSize; x++) {
+                    let cell = maze[y][x];
+                    let px = x * cellSize, py = y * cellSize;
+                    ctx.beginPath();
+                    if (cell.walls[0]) { ctx.moveTo(px, py); ctx.lineTo(px + cellSize, py); }
+                    if (cell.walls[1]) { ctx.moveTo(px + cellSize, py); ctx.lineTo(px + cellSize, py + cellSize); }
+                    if (cell.walls[2]) { ctx.moveTo(px, py + cellSize); ctx.lineTo(px + cellSize, py + cellSize); }
+                    if (cell.walls[3]) { ctx.moveTo(px, py); ctx.lineTo(px, py + cellSize); }
+                    ctx.stroke();
+                }
+            }
+
+            // Goal
+            ctx.font = `${cellSize * 0.6}px Arial`;
+            ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.fillText("🏁", goalPos.x * cellSize + cellSize/2, goalPos.y * cellSize + cellSize/2);
+
+            // Player
+            ctx.font = `${cellSize * 0.7}px Arial`;
+            ctx.fillText(karakterEmoji[charPilihan], playerPos.x * cellSize + cellSize/2, playerPos.y * cellSize + cellSize/2);
+        }
+
+        function cubaGerak(arah) {
+            if (!isPlaying) return;
+            let cell = maze[playerPos.y][playerPos.x];
+            if (arah === 'atas' && !cell.walls[0]) playerPos.y--;
+            else if (arah === 'kanan' && !cell.walls[1]) playerPos.x++;
+            else if (arah === 'bawah' && !cell.walls[2]) playerPos.y++;
+            else if (arah === 'kiri' && !cell.walls[3]) playerPos.x--;
+            
+            lukisMaze();
+            if (playerPos.x === goalPos.x && playerPos.y === goalPos.y) {
+                mainkanBunyiMenang();
+                setTimeout(() => { 
+                    document.getElementById('victory-modal').classList.remove('hidden');
+                    isPlaying = false;
+                }, 300);
+            }
+        }
+
+        function gerakManual(arah) {
+            document.getElementById('sensor-status').innerText = `Manual: ${arah.toUpperCase()}`;
+            cubaGerak(arah);
+        }
+
+        // --- AUDIO ---
+        function mainkanBunyiMenang() {
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (!AudioContext) return;
+                const ac = new AudioContext();
+                const playNote = (freq, time, duration) => {
+                    const osc = ac.createOscillator();
+                    const gain = ac.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.value = freq;
+                    gain.gain.setValueAtTime(0, ac.currentTime + time);
+                    gain.gain.linearRampToValueAtTime(0.3, ac.currentTime + time + 0.05);
+                    gain.gain.exponentialRampToValueAtTime(0.01, ac.currentTime + time + duration);
+                    osc.connect(gain);
+                    gain.connect(ac.destination);
+                    osc.start(ac.currentTime + time);
+                    osc.stop(ac.currentTime + time + duration);
+                };
+                playNote(523.25, 0, 0.2);
+                playNote(659.25, 0.1, 0.2);
+                playNote(783.99, 0.2, 0.2);
+                playNote(1046.50, 0.3, 0.6);
+            } catch (e) { }
+        }
+
+        // --- FACE TRACKING LOGIC (TENSORFLOW BLAZEFACE) ---
+        async function setupCamera() {
+            const video = document.getElementById('input_video');
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    'audio': false,
+                    'video': { facingMode: 'user', width: 320, height: 240 }
+                });
+                video.srcObject = videoStream;
+                return new Promise((resolve) => {
+                    video.onloadedmetadata = () => resolve(video);
+                });
+            } else {
+                throw new Error("Kamera tidak disokong pada pelayar ini.");
+            }
+        }
+
+        async function mulakanPengesananWajah() {
+            if (blazefaceModel) {
+                if(isModelLoaded) document.getElementById('sensor-status').innerText = "Mencari Wajah...";
+                detectFrame();
+                return;
+            }
+
+            document.getElementById('sensor-status').innerText = "Memuatkan TensorFlow...";
+
+            try {
+                // 1. Mulakan Kamera Web
+                await setupCamera();
+                
+                // 2. Muat Turun Model BlazeFace
+                blazefaceModel = await blazeface.load();
+                
+                isModelLoaded = true;
+                document.getElementById('sensor-indicator').classList.replace('bg-orange-500', 'bg-green-500');
+                document.getElementById('sensor-indicator').classList.add('pulse-animation');
+                
+                // 3. Mulakan Analisis Frame Video
+                detectFrame();
+            } catch (err) {
+                console.warn(err);
+                document.getElementById('sensor-status').innerText = "Ralat: Sila benarkan Kamera!";
+                document.getElementById('sensor-indicator').classList.replace('bg-orange-500', 'bg-red-500');
+            }
+        }
+
+        async function detectFrame() {
+            if (!isPlaying) return;
+            const video = document.getElementById('input_video');
+            
+            // Menganggar kedudukan wajah
+            const predictions = await blazefaceModel.estimateFaces(video, false);
+            onResultsFace(predictions);
+            
+            // Looping frame seterusnya mengikut kadar segar (refresh rate) skrin
+            requestAnimationFrame(detectFrame);
+        }
+
+        function onResultsFace(predictions) {
+            if (!isPlaying) return;
+
+            const statusTxt = document.getElementById('sensor-status');
+            const indicator = document.getElementById('sensor-indicator');
+
+            if (predictions.length > 0) {
+                if (!isModelLoaded) {
+                    isModelLoaded = true;
+                    indicator.classList.replace('bg-orange-500', 'bg-green-500');
+                    indicator.classList.add('pulse-animation');
+                }
+
+                // BlazeFace Landmarks: [Mata Kanan, Mata Kiri, Hidung, Mulut, Telinga Kanan, Telinga Kiri]
+                const landmarks = predictions[0].landmarks;
+                const rightEye = landmarks[0]; 
+                const leftEye = landmarks[1];
+                const nose = landmarks[2];
+                const mouth = landmarks[3];
+
+                // 1. Kiraan Teleng (Kiri / Kanan) mengikut cerun mata
+                const dx = leftEye[0] - rightEye[0];
+                const dy = leftEye[1] - rightEye[1];
+                const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+
+                // 2. Kiraan Dongak/Angguk (Atas / Bawah) 
+                const eyesCenterY = (leftEye[1] + rightEye[1]) / 2;
+                const distTop = Math.abs(nose[1] - eyesCenterY);
+                const distBottom = Math.abs(mouth[1] - nose[1]);
+                
+                // Elakkan pembahagian dengan sifar
+                const pitchRatio = distTop / (distBottom || 0.1); 
+
+                let currentDirection = null;
+
+                // Ambang Tetapan Khusus untuk BlazeFace (lebih tepat)
+                if (angle < -12) {
+                    currentDirection = 'kanan'; 
+                } else if (angle > 12) {
+                    currentDirection = 'kiri';  
+                } else if (pitchRatio < 0.6) {
+                    currentDirection = 'atas';  
+                } else if (pitchRatio > 1.6) {
+                    currentDirection = 'bawah'; 
+                } else {
+                    currentDirection = 'tengah'; 
+                }
+
+                // Logik Pergerakan Terkawal
+                if (currentDirection !== 'tengah' && currentDirection !== null) {
+                    if (currentDirection !== lastDirection && !moveCooldown) {
+                        statusTxt.innerText = `Gerak: ${currentDirection.toUpperCase()}`;
+                        statusTxt.classList.add('text-green-600');
+                        setTimeout(() => statusTxt.classList.remove('text-green-600'), 300);
+                        
+                        cubaGerak(currentDirection);
+                        lastDirection = currentDirection;
+                        
+                        // Jeda masa sebelum arahan seterusnya dibenarkan
+                        moveCooldown = true;
+                        setTimeout(() => { moveCooldown = false; }, 400);
+                    }
+                } else if (currentDirection === 'tengah') {
+                    lastDirection = null;
+                    statusTxt.innerText = "Menjejaki Wajah...";
+                }
+
+            } else {
+                indicator.classList.replace('bg-green-500', 'bg-red-500');
+                statusTxt.innerText = "Wajah Tidak Dikesan";
+            }
+        }
+    </script>
+</body>
+</html>
